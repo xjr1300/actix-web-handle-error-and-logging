@@ -1,10 +1,11 @@
-use std::borrow::Cow;
-
 use actix_web::dev::ServiceResponse;
+use actix_web::http::header;
 use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
 use actix_web::{web, App, HttpServer};
 
-use actix_web_handle_error::routers::{health_check, login};
+use actix_web_handle_error::routers::{
+    health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
+};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -13,41 +14,22 @@ async fn main() -> std::io::Result<()> {
             .wrap(ErrorHandlers::new().default_handler_client(client_error_handler))
             .route("/", web::get().to(health_check))
             .route("/login", web::post().to(login))
+            .route("/users", web::post().to(register_user))
     })
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
 }
 
-/// エラー・メッセージ・ボディ
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ErrorResponseBody<'a> {
-    /// HTTPステータス・コード
-    status_code: u16,
-    /// アプリ独自のエラー・コード
-    ///
-    /// `actix-web`がエラー処理した場合は`None`である。
-    error_code: Option<u16>,
-    /// エラー・メッセージ
-    message: Cow<'a, str>,
-}
-
-impl<'a> ErrorResponseBody<'a> {
-    fn new<T>(status_code: u16, error_code: Option<u16>, message: T) -> Self
-    where
-        T: Into<Cow<'a, str>>,
-    {
-        Self {
-            status_code,
-            error_code,
-            message: message.into(),
-        }
-    }
-}
-
 /// カスタム・クライアント・エラー・ハンドラ
 fn client_error_handler<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHandlerResponse<B>> {
+    // Content-Typeがapplication/jsonの場合はそのまま返す
+    let content_type = res.headers().get(header::CONTENT_TYPE);
+    if content_type.is_some() && content_type.unwrap() == CONTENT_TYPE_JSON {
+        return Ok(ErrorHandlerResponse::Response(res.map_into_left_body()));
+    }
+
+    // actix-webが処理したエラー・レスポンス・ボディをJSONに変更
     let status_code = res.status().as_u16();
     let error_code: Option<u16> = None;
     let message = res
