@@ -7,7 +7,7 @@
     - [エラー処理の戦略](#エラー処理の戦略)
       - [カスタム・クライアント・エラー・ハンドラ](#カスタムクライアントエラーハンドラ)
       - [独自のエラー処理戦略](#独自のエラー処理戦略)
-    - [actix-webのミドルウェアの参考](#actix-webのミドルウェアの参考)
+    - [actix-webのミドルウェアの参考情報](#actix-webのミドルウェアの参考情報)
       - [`actix-web::Either`について](#actix-webeitherについて)
       - [エクストラクター](#エクストラクター)
       - [レスポンダー](#レスポンダー)
@@ -214,9 +214,80 @@ fn client_error_handler<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHa
 `401 Unauthorized`や`403 Forbidden`のようなエラーは、認証に関わるエラーであるため、独自のミドルウェアやハンドラで処理した結果として返す。
 また、HTTPのサーバー・エラー(500 - 599)は、リクエスト・ハンドラやユース・ケースのロジックで処理した結果として返す。
 
-TODO: 独自のエラー処理戦略を検討する
+`actix-web`は、エラー処理に、`actix-web`独自の[actix_web::error::Error](https://docs.rs/actix-web/4/actix_web/error/struct.Error.html)型と[actix_web::error::ResponseError](https://docs.rs/actix-web/4/actix_web/error/trait.ResponseError.html)トレイトを使用する。
 
-### actix-webのミドルウェアの参考
+```rust
+pub struct Error {   // actix_web::error::Error
+    cause: Box<dyn ResponseError>,
+}
+
+pub trait ResponseError: Debug + Display {
+    fn status_code(&self) -> StatusCode { StatusCode::INTERNAL_SERVER_ERROR }
+    fn error_response(&self) -> HttpResponse<BoxBody> {
+        let mut res = HttpResponse::new(self.status_code());
+        let mut buf = BytesMut::new();
+        let _ = write!(helpers::MutWriter(&mut buf), "{}", self);
+        let mime = mime::TEXT_PLAIN_UTF_8.try_into_value().unwrap();
+        res.headers_mut().insert(header::CONTENT_TYPE, mime);
+        res.set_body(BoxBody::new(buf))
+    }
+}
+```
+
+また、これらのエラーは、クリーン・アーキテクチャにおいて、主にユース・ケース層と補助的にコントローラー層（ルーター層）で処理される。
+
+- ユース・ケースで発生するエラーは、そのユース・ケース独自のエラー型をユース・ケース層で定義して、ルーター層でそのエラーに`ResponseError`を実装する。
+- 認証済みかどうかをミドルウェアで確認して、認証済みのクライアントからのみリクエストを受け付ける場合など、ルーター層で発生するエラーは、ルーター層で独自のエラー型を定義して、そのエラーに`ResponseError`を実装する。
+
+```rust
+/// ユース・ケース層
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterUserError {
+    /// 予期しないエラー
+    #[error(transparent)]
+    Unexpected(#[from] anyhow::Error),
+
+    /// リポジトリ・エラー
+    #[error(transparent)]
+    Repository(#[from] anyhow::Error),
+
+    /// パスワードが弱い
+    #[error("Password is weak")]
+    WeakPassword,
+
+    /// ユーザー名が既に登録されている
+    #[error("User already exists: {0}")]
+    UserAlreadyExists(String),
+}
+
+/// ルーター層
+impl ResponseError for RegisterUserError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::WeakPassword => StatusCode::BAD_REQUEST,
+            Self::UserAlreadyExists(_) => StatusCode::CONFLICT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn error_response(&self) -> HttpResponse<BoxBody> {
+        let status_code = self.status_code();
+        let error_code: Option<u16> = match self {
+            Self::Unexpected(_) => Some(1),
+            Self::Repository(_) => Some(2),
+            Self::WeakPassword => Some(10000),
+            Self::UserAlreadyExists(_) => Some(10001),
+        };
+        let message = format("{}", self);
+        let body = ErrorResponseBody::new(status_code.as_u16(), error_code, message);
+        let body = serde_json::to_string(&body).unwrap();
+
+        HttpResponse::new(status_code).json(body)
+    }
+}
+```
+
+### actix-webのミドルウェアの参考情報
 
 #### `actix-web::Either`について
 
