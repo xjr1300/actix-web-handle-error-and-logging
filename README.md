@@ -5,7 +5,7 @@
     - [エラー処理方針](#エラー処理方針)
     - [actix-webのエラー・ハンドラ・ミドルウェア](#actix-webのエラーハンドラミドルウェア)
     - [エラー処理の戦略](#エラー処理の戦略)
-      - [カスタム・エラー・ハンドラ](#カスタムエラーハンドラ)
+      - [カスタム・クライアント・エラー・ハンドラ](#カスタムクライアントエラーハンドラ)
       - [独自のエラー処理戦略](#独自のエラー処理戦略)
     - [actix-webのミドルウェアの参考](#actix-webのミドルウェアの参考)
       - [`actix-web::Either`について](#actix-webeitherについて)
@@ -18,9 +18,8 @@
 
 ### エラー処理方針
 
-- エラー処理
-  - レスポンスはすべてJSONで返したい
-  - リクエスト・ハンドラに設定した`Path`をデシリアライズに失敗した場合など、actix-web本体から返されるエラー・レスポンスもJSONで返したい
+- クライアント側のエラー処理を考慮して、エラー・レスポンスはすべてJSONで返す。
+- エクストラクタがデシリアライズに失敗した場合など、`actix-web`がエラー処理したときも、レスポンスをJSONで返す。
 
 ### actix-webのエラー・ハンドラ・ミドルウェア
 
@@ -59,12 +58,156 @@ let app = App::new()
     .service(web::resource("/").route(web::get().to(HttpResponse::InternalServerError)));
 ```
 
+```sh
+# ヘルス・チェック・エンドポイント
+$ curl --include http://localhost:8080/
+HTTP/1.1 200 OK
+content-length: 9
+date: Wed, 13 Mar 2024 04:27:15 GMT
+
+It works!%
+
+# 定義されていないエンドポイントへのリクエスト
+$ curl --include http://localhost:8080/foo
+HTTP/1.1 404 Not Found
+content-length: 57
+date: Wed, 13 Mar 2024 04:27:28 GMT
+
+{"statusCode":404,"errorCode":null,"message":"Not Found"}%
+
+# ログイン・エンドポイント
+$ curl --include -X POST -H "Content-Type: application/json" -d '{"userName":"kuro","password":"test"}' http://localhost:8080/login
+HTTP/1.1 200 OK
+content-length: 37
+content-type: application/json
+date: Wed, 13 Mar 2024 04:29:15 GMT
+
+{"message":"Authorization succeeded"}%
+
+# ボディを指定せずにログイン・エンドポイントへのリクエスト
+curl --include -X POST http://localhost:8080/login
+HTTP/1.1 400 Bad Request
+content-length: 59
+content-type: text/plain; charset=utf-8
+date: Wed, 13 Mar 2024 04:30:17 GMT
+
+{"statusCode":400,"errorCode":null,"message":"Bad Request"}%
+
+# 誤ったリクエスト・ボディを指定したログイン・エンドポイントへのリクエスト
+$ curl --include -X POST -H "Content-Type: application/json" -d '{"user":"kuro","pass":"test"}' http://localhost:8080/login
+HTTP/1.1 400 Bad Request
+content-length: 59
+content-type: text/plain; charset=utf-8
+date: Wed, 13 Mar 2024 04:31:05 GMT
+
+{"statusCode":400,"errorCode":null,"message":"Bad Request"}%
+```
+
 ### エラー処理の戦略
 
-#### カスタム・エラー・ハンドラ
+#### カスタム・クライアント・エラー・ハンドラ
 
 通常、`actix-web`は、リクエスト・ハンドラが呼び出されるまでに、URLディスパッチャやエクストラクターなどが、HTTPのクライアント・エラー(400 - 499)を処理する。
 よって、クライアント・エラーに対して、独自のエラー・ハンドラを登録して、JSONでエラー・レスポンスを返す。
+
+```rust
+use std::borrow::Cow;
+
+use actix_web::dev::ServiceResponse;
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .wrap(ErrorHandlers::new().default_handler_client(client_error_handler))
+            .route("/", web::get().to(health_check))
+            .route("/login", web::post().to(login))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+
+/// ヘルス・チェック
+async fn health_check() -> impl Responder {
+    HttpResponse::Ok().body("It works!")
+}
+
+/// ログイン
+async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
+    let _user_name = &body.user_name;
+    let _password = &body.password;
+
+    HttpResponse::Ok().json(LoginResponseBody {
+        message: "Authorization succeeded".into(),
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginRequestBody {
+    /// ユーザー名
+    user_name: String,
+    /// パスワード
+    password: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginResponseBody<'a> {
+    message: Cow<'a, str>,
+}
+
+/// エラー・メッセージ・ボディ
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorResponseBody<'a> {
+    /// HTTPステータス・コード
+    status_code: u16,
+    /// アプリ独自のエラー・コード
+    ///
+    /// `actix-web`がエラー処理した場合は`None`である。
+    error_code: Option<u16>,
+    /// エラー・メッセージ
+    message: Cow<'a, str>,
+}
+
+impl<'a> ErrorResponseBody<'a> {
+    fn new<T>(status_code: u16, error_code: Option<u16>, message: T) -> Self
+    where
+        T: Into<Cow<'a, str>>,
+    {
+        Self {
+            status_code,
+            error_code,
+            message: message.into(),
+        }
+    }
+}
+
+/// カスタム・クライアント・エラー・ハンドラ
+fn client_error_handler<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHandlerResponse<B>> {
+    let status_code = res.status().as_u16();
+    let error_code: Option<u16> = None;
+    let message = res
+        .status()
+        .canonical_reason()
+        .unwrap_or("Unexpected error raised");
+    let body = ErrorResponseBody::new(status_code, error_code, message);
+    let body = serde_json::to_string(&body).unwrap();
+
+    let (req, res) = res.into_parts();
+    let res = res.set_body(body);
+
+    let res = ServiceResponse::new(req, res)
+        .map_into_boxed_body()
+        .map_into_right_body();
+
+    Ok(ErrorHandlerResponse::Response(res))
+}
+```
 
 #### 独自のエラー処理戦略
 
