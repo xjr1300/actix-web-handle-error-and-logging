@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use actix_web::dev::ServiceResponse;
 use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpServer};
+
+use actix_web_handle_error::routers::{health_check, login};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -15,36 +17,6 @@ async fn main() -> std::io::Result<()> {
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
-}
-
-/// ヘルス・チェック
-async fn health_check() -> impl Responder {
-    HttpResponse::Ok().body("It works!")
-}
-
-/// ログイン
-async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
-    let _user_name = &body.user_name;
-    let _password = &body.password;
-
-    HttpResponse::Ok().json(LoginResponseBody {
-        message: "Authorization succeeded".into(),
-    })
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginRequestBody {
-    /// ユーザー名
-    user_name: String,
-    /// パスワード
-    password: String,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginResponseBody<'a> {
-    message: Cow<'a, str>,
 }
 
 /// エラー・メッセージ・ボディ
