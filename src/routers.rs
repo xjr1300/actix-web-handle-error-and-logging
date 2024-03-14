@@ -9,16 +9,18 @@ use crate::use_cases::{self, RegisterUserError, RegistrationUser};
 /// Content-Type
 pub const CONTENT_TYPE_JSON: &str = "application/json";
 
-/// エラー・メッセージ・ボディ
+/// エラー・レスポンス・ボディ
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResponseBody<'a> {
     /// HTTPステータス・コード
     status_code: u16,
+
     /// アプリ独自のエラー・コード
     ///
     /// `actix-web`がエラー処理した場合は`None`である。
     error_code: Option<u16>,
+
     /// エラー・メッセージ
     message: Cow<'a, str>,
 }
