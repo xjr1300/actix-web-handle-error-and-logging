@@ -30,13 +30,13 @@ pub async fn register_user(user: RegistrationUser) -> Result<(), RegisterUserErr
         "foo" => {
             // 予期しないエラー
             Err(RegisterUserError::Unexpected(anyhow!(
-                "予期しないエラーが発生しました。",
+                "An unexpected error raised",
             )))
         }
         "bar" => {
             // リポジトリ・エラー
             Err(RegisterUserError::Repository(anyhow!(
-                "ユーザーをデータベースに登録するときにエラーが発生しました。"
+                "An error was raised when registering the user to the database"
             )))
         }
         "baz" => {
