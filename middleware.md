@@ -7,37 +7,29 @@
 
 ```rust
 #[get("/")]
-async fn service(a: ExtractorA, b: ExtractorB) -> impl Responder { "Hello, World!" }
+async fn foo(a: ExtractorA, b: ExtractorB) -> impl Responder { "Hello, World!" }
 
 let app = App::new()
     .wrap(MiddlewareA)
     .wrap(MiddlewareB)
     .wrap(MiddlewareC)
-    .service(service);
+    .service(foo);
 ```
 
-```text
-                  Request
-                     ⭣
-╭────────────────────┼────╮
-│ MiddlewareC        │    │
-│ ╭──────────────────┼───╮│
-│ │ MiddlewareB      │   ││
-│ │ ╭────────────────┼──╮││
-│ │ │ MiddlewareA    │  │││
-│ │ │ ╭──────────────┼─╮│││
-│ │ │ │ ExtractorA   │ ││││
-│ │ │ ├┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┤│││
-│ │ │ │ ExtractorB   │ ││││
-│ │ │ ├┈┈┈┈┈┈┈┈┈┈┈┈┈┈┼┈┤│││
-│ │ │ │ service      │ ││││
-│ │ │ ╰──────────────┼─╯│││
-│ │ ╰────────────────┼──╯││
-│ ╰──────────────────┼───╯│
-╰────────────────────┼────╯
-                     ⭣
-                  Response
-```
+* リクエスト
+  * クライアントが送信したリクエストが、ミドルウェアCに渡される
+  * ミドルウェアCがリクエストを処理して、結果をミドルウェアBに渡す
+  * ミドルウェアBがリクエストを処理して、結果をミドルウェアAに渡す
+  * ミドルウェアAがリクエストを処理して、サービスに渡す
+  * サービスは、エクストラクタAとエクストラクタBを実行して、ハンドラ`foo`に渡す
+  * ハンドラ`foo`がリクエストを処理する
+* レスポンス
+  * ハンドラ`foo`がレスポンスを生成して、ミドルウェアAに渡す
+  * ミドルウェアAがレスポンスを処理して、結果をミドルウェアBに渡す
+  * ミドルウェアBがレスポンスを処理して、結果をミドルウェアCに渡す
+  * ミドルウェアCがレスポンスを処理して、最終的にレスポンスがクライアントに返される
+
+ミドルウェアがリクエストまたはレスポンスを処理する順序は、[ここ](https://docs.rs/actix-web/latest/actix_web/middleware/index.html)で説明されている。
 
 ## `actix-web::Either`について
 
@@ -182,7 +174,7 @@ where
 
         if authenticate_pass {
             Either::left(AuthenticationFuture {
-                fut: self.service.call(req),
+                fut: self.service.call(req),    // 次のミドルウェアにレスポンスを処理させる
                 _phantom: PhantomData,
             })
         } else {
