@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use uuid::Uuid;
 
 /// 登録するユーザー
 pub struct RegistrationUser {
@@ -25,30 +26,43 @@ pub enum RegisterUserError {
     UserAlreadyExists(String),
 }
 
-pub async fn register_user(user: RegistrationUser) -> Result<(), RegisterUserError> {
+pub async fn register_user(
+    request_id: Uuid,
+    user: RegistrationUser,
+) -> Result<(), RegisterUserError> {
     match user.user_name.as_str() {
         "foo" => {
             // 予期しないエラー
-            log::error!("An unexpected error raised");
+            tracing::error!("request_id: {} - An unexpected error raised", request_id);
             Err(RegisterUserError::Unexpected(anyhow!(
-                "An unexpected error raised",
+                "An unexpected error raised"
             )))
         }
         "bar" => {
             // リポジトリ・エラー
-            log::error!("An error was raised when registering the user to the database");
+            tracing::error!(
+                "request_id: {} - An error was raised when registering the user to the database",
+                request_id
+            );
             Err(RegisterUserError::Repository(anyhow!(
-                "An error was raised when registering the user to the database"
+                "An error was raised when registering the user to the database",
             )))
         }
         "baz" => {
             // パスワードが弱い
-            log::error!("The user was attempted to register with a weak password");
+            tracing::error!(
+                "request_id: {} - The user was attempted to register with a weak password",
+                request_id
+            );
             Err(RegisterUserError::WeakPassword)
         }
         "qux" => {
             // ユーザー名が既に登録されている
-            log::error!("The user name was already registered: {}", user.user_name);
+            tracing::error!(
+                "request_id: {} - The user name was already registered: {}",
+                request_id,
+                user.user_name
+            );
             Err(RegisterUserError::UserAlreadyExists(user.user_name))
         }
         _ => {

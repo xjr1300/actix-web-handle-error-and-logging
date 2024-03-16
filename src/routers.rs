@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use actix_web::body::BoxBody;
 use actix_web::http::{header, StatusCode};
 use actix_web::{web, HttpResponse, HttpResponseBuilder, Responder, ResponseError};
+use uuid::Uuid;
 
 use crate::use_cases::{self, RegisterUserError, RegistrationUser};
 
@@ -40,6 +41,9 @@ impl<'a> ErrorResponseBody<'a> {
 
 /// ヘルス・チェック
 pub async fn health_check() -> impl Responder {
+    let request_id = Uuid::new_v4();
+    tracing::info!("request_id: {} - health check was requested", request_id);
+
     HttpResponse::Ok().body("It works!")
 }
 
@@ -62,6 +66,9 @@ struct LoginResponseBody<'a> {
 
 /// ログイン
 pub async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
+    let request_id = Uuid::new_v4();
+    tracing::info!("request_id: {} - login was requested", request_id);
+
     let _user_name = &body.user_name;
     let _password = &body.password;
 
@@ -110,12 +117,15 @@ impl ResponseError for RegisterUserError {
 pub async fn register_user(
     body: web::Json<RegistrationUserRequestBody>,
 ) -> Result<HttpResponse, RegisterUserError> {
+    let request_id = Uuid::new_v4();
+    tracing::info!("request_id: {} - register user was requested", request_id);
+
     let user = RegistrationUser {
         user_name: body.user_name.clone(),
         password: body.password.clone(),
     };
 
-    use_cases::register_user(user).await?;
+    use_cases::register_user(request_id, user).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

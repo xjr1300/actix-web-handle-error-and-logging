@@ -2,7 +2,10 @@ use actix_web::dev::ServiceResponse;
 use actix_web::http::header;
 use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers, Logger};
 use actix_web::{web, App, HttpServer};
-use env_logger::Env;
+use tracing::subscriber::set_global_default;
+use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{EnvFilter, Registry};
 
 use actix_web_handle_error::routers::{
     health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
@@ -10,9 +13,16 @@ use actix_web_handle_error::routers::{
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let formatting_layer =
+        BunyanFormattingLayer::new("actix_web_handle_error".into(), std::io::stdout);
+    let subscriber = Registry::default()
+        .with(env_filter)
+        .with(JsonStorageLayer)
+        .with(formatting_layer);
+    set_global_default(subscriber).expect("failed to set global default subscriber");
 
-    log::info!("start program");
+    tracing::info!("start program");
 
     HttpServer::new(|| {
         App::new()

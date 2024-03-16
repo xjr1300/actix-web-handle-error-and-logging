@@ -20,7 +20,7 @@ match result {
 
 ## env_loggerクレート
 
-`env_logger`クレーとは、`log::Log`トレイトを実装した`Logger`型を提供する。
+`env_logger`クレートは、`log::Log`トレイトを実装した`Logger`型を提供する。
 この`Logger`型は、環境変数により実際に発行されるログ・レベルを変更する。
 
 ```rust
