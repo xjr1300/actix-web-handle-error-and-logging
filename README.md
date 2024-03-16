@@ -9,6 +9,7 @@
     - [エラー処理の実装概要](#エラー処理の実装概要)
   - [ロギング](#ロギング)
     - [要求仕様](#要求仕様-1)
+    - [実装方針](#実装方針)
     - [実装概要](#実装概要)
 
 ## エラー処理
@@ -182,7 +183,7 @@ impl ResponseError for RegisterUserError {
 - リクエストIDなど、それぞれのリクエストを追跡できるような情報とともにログを記録する。
 - リクエスト・ハンドラの処理時間を記録する。
 
-### 実装概要
+### 実装方針
 
  次のクレートを使用してロギングを実装する。
 
@@ -190,3 +191,56 @@ impl ResponseError for RegisterUserError {
 - [tracing-bunyan-formatter](https://docs.rs/tracing-bunyan-formatter/latest/tracing_bunyan_formatter/): スパンへの出入り、イベントの作成時に、[Bunyan](https://github-com.translate.goog/trentm/node-bunyan?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja&_x_tr_pto=wapp)と互換性のあるレコードをJSON形式で発行
 - [tracing-log](https://github.com/tokio-rs/tracing/tree/master/tracing-log): `log`クレートが提供するロギング・ファサードと一緒にトレースを使用する互換レイヤ
 - [tracing-subscriber](https://github.com/tokio-rs/tracing/tree/master/tracing-subscriber): `tracing`クレートのサブスクライバを実装または構成するユーティリティ
+
+### 実装概要
+
+```rust
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    // サブスクライバを初期化
+    let subscriber = get_subscriber("actix_web_handle_error_and_logging".into(), "info".into());
+    init_subscriber(subscriber);
+
+    tracing::info!("start program");
+
+    HttpServer::new(|| {
+        App::new()
+            .wrap(ErrorHandlers::new().default_handler(default_error_handler))
+            .wrap(Logger::default())
+            .route("/", web::get().to(health_check))
+            .route("/login", web::post().to(login))
+            .route("/users", web::post().to(register_user))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+
+fn get_subscriber(name: String, default_log_level: String) -> impl Subscriber {
+    // ログをフィルタする条件を環境変数から取得
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_log_level));
+
+    // ログを購読するサブスクライバを構築
+    let formatting_layer = BunyanFormattingLayer::new(name, std::io::stdout);
+    Registry::default()
+        .with(env_filter)
+        .with(JsonStorageLayer)
+        .with(formatting_layer)
+}
+
+fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
+    // すべての`log`のイベントをサブスクライバにリダイレクト
+    LogTracer::init().expect("failed to set log tracer");
+    // 上記サブスクライバをデフォルトに設定
+    set_global_default(subscriber).expect("failed to set subscriber");
+}
+```
+
+標準出力に出力されたログを次に示す。
+
+```text
+{"v":0,"name":"actix_web_handle_error_and_logging","msg":"start program","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.875263Z","target":"actix_web_handle_error_and_logging","line":22,"file":"src/main.rs"}
+{"v":0,"name":"actix_web_handle_error_and_logging","msg":"starting 8 workers","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.875886Z","target":"actix_server::builder","line":240,"file":"/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/builder.rs"}
+{"v":0,"name":"actix_web_handle_error_and_logging","msg":"Tokio runtime found; starting in existing Tokio runtime","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.87599Z","target":"actix_server::server","line":197,"file":"/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs"}
+```

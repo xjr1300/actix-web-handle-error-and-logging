@@ -2,11 +2,7 @@ use actix_web::dev::ServiceResponse;
 use actix_web::http::header;
 use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers, Logger};
 use actix_web::{web, App, HttpServer};
-use tracing::subscriber::set_global_default;
-use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
-use tracing_log::LogTracer;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Registry};
+use actix_web_handle_error_and_logging::telemetry::{get_subscriber, init_subscriber};
 
 use actix_web_handle_error_and_logging::routers::{
     health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
@@ -14,19 +10,9 @@ use actix_web_handle_error_and_logging::routers::{
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // すべての`log`のイベントをサブスクライバにリダイレクト
-    LogTracer::init().expect("failed to set log tracer");
-    // ログをフィルタする条件を環境変数から取得
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    // ログを購読するサブスクライバを構築
-    let formatting_layer =
-        BunyanFormattingLayer::new("actix_web_handle_error_and_logging".into(), std::io::stdout);
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(JsonStorageLayer)
-        .with(formatting_layer);
-    // 上記サブスクライバをデフォルトに設定
-    set_global_default(subscriber).expect("failed to set global default subscriber");
+    // サブスクライバを初期化
+    let subscriber = get_subscriber("actix_web_handle_error_and_logging".into(), "info".into());
+    init_subscriber(subscriber);
 
     tracing::info!("start program");
 
