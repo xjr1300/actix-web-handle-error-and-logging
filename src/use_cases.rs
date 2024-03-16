@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use uuid::Uuid;
 
 /// 登録するユーザー
 pub struct RegistrationUser {
@@ -26,43 +25,30 @@ pub enum RegisterUserError {
     UserAlreadyExists(String),
 }
 
-pub async fn register_user(
-    request_id: Uuid,
-    user: RegistrationUser,
-) -> Result<(), RegisterUserError> {
+pub async fn register_user(user: RegistrationUser) -> Result<(), RegisterUserError> {
     match user.user_name.as_str() {
         "foo" => {
             // 予期しないエラー
-            tracing::error!("request_id: {} - An unexpected error raised", request_id);
+            tracing::error!("An unexpected error raised");
             Err(RegisterUserError::Unexpected(anyhow!(
                 "An unexpected error raised"
             )))
         }
         "bar" => {
             // リポジトリ・エラー
-            tracing::error!(
-                "request_id: {} - An error was raised when registering the user to the database",
-                request_id
-            );
+            tracing::error!("An error was raised when registering the user to the database",);
             Err(RegisterUserError::Repository(anyhow!(
                 "An error was raised when registering the user to the database",
             )))
         }
         "baz" => {
             // パスワードが弱い
-            tracing::error!(
-                "request_id: {} - The user was attempted to register with a weak password",
-                request_id
-            );
+            tracing::error!("The user was attempted to register with a weak password",);
             Err(RegisterUserError::WeakPassword)
         }
         "qux" => {
             // ユーザー名が既に登録されている
-            tracing::error!(
-                "request_id: {} - The user name was already registered: {}",
-                request_id,
-                user.user_name
-            );
+            tracing::error!("The user name was already registered: {}", user.user_name);
             Err(RegisterUserError::UserAlreadyExists(user.user_name))
         }
         _ => {

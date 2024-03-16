@@ -40,15 +40,16 @@ impl<'a> ErrorResponseBody<'a> {
 }
 
 /// ヘルス・チェック
+#[tracing::instrument(
+    name = "health check",
+    fields(request_id = %Uuid::new_v4())
+)]
 pub async fn health_check() -> impl Responder {
-    let request_id = Uuid::new_v4();
-    tracing::info!("request_id: {} - health check was requested", request_id);
-
     HttpResponse::Ok().body("It works!")
 }
 
 /// ログイン・リクエスト・ボディ
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginRequestBody {
     /// ユーザー名
@@ -65,10 +66,15 @@ struct LoginResponseBody<'a> {
 }
 
 /// ログイン
+#[tracing::instrument(
+    name = "login",
+    skip(body),     // パスワードをログに出力しないようにスキップ
+    fields(
+        request_id = %Uuid::new_v4(),
+        user_name = %body.user_name,
+    )
+)]
 pub async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
-    let request_id = Uuid::new_v4();
-    tracing::info!("request_id: {} - login was requested", request_id);
-
     let _user_name = &body.user_name;
     let _password = &body.password;
 
@@ -78,7 +84,7 @@ pub async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
 }
 
 /// ユーザー登録リクエスト・ボディ
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistrationUserRequestBody {
     /// ユーザー名
@@ -114,18 +120,23 @@ impl ResponseError for RegisterUserError {
 }
 
 /// ユーザー登録
+#[tracing::instrument(
+    name = "register user",
+    skip(body),     // パスワードをログに出力しないようにスキップ
+    fields(
+        request_id = %Uuid::new_v4(),
+        user_name = %body.user_name,
+    )
+)]
 pub async fn register_user(
     body: web::Json<RegistrationUserRequestBody>,
 ) -> Result<HttpResponse, RegisterUserError> {
-    let request_id = Uuid::new_v4();
-    tracing::info!("request_id: {} - register user was requested", request_id);
-
     let user = RegistrationUser {
         user_name: body.user_name.clone(),
         password: body.password.clone(),
     };
 
-    use_cases::register_user(request_id, user).await?;
+    use_cases::register_user(user).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

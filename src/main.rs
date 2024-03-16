@@ -1,8 +1,9 @@
 use actix_web::dev::ServiceResponse;
 use actix_web::http::header;
-use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers, Logger};
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
 use actix_web::{web, App, HttpServer};
 use actix_web_handle_error_and_logging::telemetry::{get_subscriber, init_subscriber};
+use tracing_actix_web::TracingLogger;
 
 use actix_web_handle_error_and_logging::routers::{
     health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
@@ -19,7 +20,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(ErrorHandlers::new().default_handler(default_error_handler))
-            .wrap(Logger::default())
+            .wrap(TracingLogger::default())
             .route("/", web::get().to(health_check))
             .route("/login", web::post().to(login))
             .route("/users", web::post().to(register_user))

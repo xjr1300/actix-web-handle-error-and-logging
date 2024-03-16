@@ -188,6 +188,8 @@ impl ResponseError for RegisterUserError {
  次のクレートを使用してロギングを実装する。
 
 - [tracing](https://docs.rs/tracing/latest/tracing/index.html): 構造化されたイベント・ベースの診断情報を収集する計測フレームワーク
+- [tracing-actix-web](https://docs.rs/tracing-actix-web/latest/tracing_actix_web/):  `actix-web`フレームワーク上に構築されたアプリケーションから遠隔測定データを収集するミドルウェアである[TracingLogger](https://docs.rs/tracing-actix-web/latest/tracing_actix_web/struct.TracingLogger.html)を提供
+  - 自動的にリクエストにIDを付与して、リクエスト・パスとともにイベントを発行
 - [tracing-bunyan-formatter](https://docs.rs/tracing-bunyan-formatter/latest/tracing_bunyan_formatter/): スパンへの出入り、イベントの作成時に、[Bunyan](https://github-com.translate.goog/trentm/node-bunyan?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja&_x_tr_pto=wapp)と互換性のあるレコードをJSON形式で発行
 - [tracing-log](https://github.com/tokio-rs/tracing/tree/master/tracing-log): `log`クレートが提供するロギング・ファサードと一緒にトレースを使用する互換レイヤ
 - [tracing-subscriber](https://github.com/tokio-rs/tracing/tree/master/tracing-subscriber): `tracing`クレートのサブスクライバを実装または構成するユーティリティ
@@ -206,7 +208,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(ErrorHandlers::new().default_handler(default_error_handler))
-            .wrap(Logger::default())
+            .wrap(TracingLogger::default())
             .route("/", web::get().to(health_check))
             .route("/login", web::post().to(login))
             .route("/users", web::post().to(register_user))
@@ -237,10 +239,167 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
 }
 ```
 
+リクエスト・ハンドラの実装を次に示す。
+
+```rust
+/// ユーザー登録
+#[tracing::instrument(
+    name = "register user",
+    skip(body), // パスワードをログに出力しないようにスキップ
+    fields(
+        request_id = %Uuid::new_v4(), // リクエストIDを生成
+        user_name = %body.user_name,
+    )
+)]
+pub async fn register_user(
+    body: web::Json<RegistrationUserRequestBody>,
+) -> Result<HttpResponse, RegisterUserError> {
+    let user = RegistrationUser {
+        user_name: body.user_name.clone(),
+        password: body.password.clone(),
+    };
+
+    use_cases::register_user(user).await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+```
+
 標準出力に出力されたログを次に示す。
 
-```text
-{"v":0,"name":"actix_web_handle_error_and_logging","msg":"start program","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.875263Z","target":"actix_web_handle_error_and_logging","line":22,"file":"src/main.rs"}
-{"v":0,"name":"actix_web_handle_error_and_logging","msg":"starting 8 workers","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.875886Z","target":"actix_server::builder","line":240,"file":"/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/builder.rs"}
-{"v":0,"name":"actix_web_handle_error_and_logging","msg":"Tokio runtime found; starting in existing Tokio runtime","level":30,"hostname":"mac17.local","pid":9421,"time":"2024-03-16T08:21:44.87599Z","target":"actix_server::server","line":197,"file":"/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs"}
+```json
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "start program",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:31:19.248072Z",
+  "target": "actix_web_handle_error_and_logging",
+  "line": 18,
+  "file": "src/main.rs"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "starting 8 workers",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:31:19.248697Z",
+  "target": "actix_server::builder",
+  "line": 240,
+  "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/builder.rs"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "Tokio runtime found; starting in existing Tokio runtime",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:31:19.24881Z",
+  "target": "actix_server::server",
+  "line": 197,
+  "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "[HTTP REQUEST - START]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:32:32.248791Z",
+  "target": "tracing_actix_web::root_span_builder",
+  "line": 41,
+  "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tracing-actix-web-0.7.10/src/root_span_builder.rs",
+  "http.flavor": "1.1",
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users",
+  "request_id": "cdf8b45a-0af7-441b-a272-5ec064f467ca",
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.kind": "server",
+  "http.scheme": "http",
+  "http.method": "POST",
+  "http.target": "/users",
+  "http.client_ip": "127.0.0.1"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "[REGISTER USER - START]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:32:32.249098Z",
+  "target": "actix_web_handle_error_and_logging::routers",
+  "line": 123,
+  "file": "src/routers.rs",
+  "http.flavor": "1.1",
+  "user_name": "kuro",
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users",
+  "request_id": "cffca2be-73d3-4242-948a-87f4e1119850",
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.kind": "server",
+  "http.scheme": "http",
+  "http.method": "POST",
+  "http.target": "/users",
+  "http.client_ip": "127.0.0.1"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "[REGISTER USER - END]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:32:32.249236Z",
+  "target": "actix_web_handle_error_and_logging::routers",
+  "line": 123,
+  "file": "src/routers.rs",
+  "http.flavor": "1.1",
+  "user_name": "kuro",
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users",
+  "request_id": "cffca2be-73d3-4242-948a-87f4e1119850",
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.kind": "server",
+  "elapsed_milliseconds": 0,
+  "http.scheme": "http",
+  "http.method": "POST",
+  "http.target": "/users",
+  "http.client_ip": "127.0.0.1"
+}
+{
+  "v": 0,
+  "name": "actix_web_handle_error_and_logging",
+  "msg": "[HTTP REQUEST - END]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 46832,
+  "time": "2024-03-16T12:32:32.24942Z",
+  "target": "tracing_actix_web::root_span_builder",
+  "line": 41,
+  "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tracing-actix-web-0.7.10/src/root_span_builder.rs",
+  "http.flavor": "1.1",
+  "http.status_code": 200,
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users",
+  "request_id": "cdf8b45a-0af7-441b-a272-5ec064f467ca",
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.kind": "server",
+  "otel.status_code": "OK",
+  "elapsed_milliseconds": 0,
+  "http.scheme": "http",
+  "http.method": "POST",
+  "http.target": "/users",
+  "http.client_ip": "127.0.0.1"
+}
 ```
