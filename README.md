@@ -9,6 +9,7 @@
     - [エラー処理の実装概要](#エラー処理の実装概要)
   - [ロギング](#ロギング)
     - [要求仕様](#要求仕様-1)
+    - [実装概要](#実装概要)
 
 ## エラー処理
 
@@ -180,3 +181,12 @@ impl ResponseError for RegisterUserError {
 - デバッグ、情報、警告、エラーなどを区分してログを記録する。
 - リクエストIDなど、それぞれのリクエストを追跡できるような情報とともにログを記録する。
 - リクエスト・ハンドラの処理時間を記録する。
+
+### 実装概要
+
+ 次のクレートを使用してロギングを実装する。
+
+- [tracing](https://docs.rs/tracing/latest/tracing/index.html): 構造化されたイベント・ベースの診断情報を収集する計測フレームワーク
+- [tracing-bunyan-formatter](https://docs.rs/tracing-bunyan-formatter/latest/tracing_bunyan_formatter/): スパンへの出入り、イベントの作成時に、[Bunyan](https://github-com.translate.goog/trentm/node-bunyan?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja&_x_tr_pto=wapp)と互換性のあるレコードをJSON形式で発行
+- [tracing-log](https://github.com/tokio-rs/tracing/tree/master/tracing-log): `log`クレートが提供するロギング・ファサードと一緒にトレースを使用する互換レイヤ
+- [tracing-subscriber](https://github.com/tokio-rs/tracing/tree/master/tracing-subscriber): `tracing`クレートのサブスクライバを実装または構成するユーティリティ
