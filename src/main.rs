@@ -8,6 +8,7 @@ use tracing_log::LogTracer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
+use actix_web_handle_error_and_logging::routers::{
     health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
 };
 
@@ -19,6 +20,7 @@ async fn main() -> std::io::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     // ログを購読するサブスクライバを構築
     let formatting_layer =
+        BunyanFormattingLayer::new("actix_web_handle_error_and_logging".into(), std::io::stdout);
     let subscriber = Registry::default()
         .with(env_filter)
         .with(JsonStorageLayer)

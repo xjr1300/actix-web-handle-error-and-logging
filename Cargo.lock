@@ -182,7 +182,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "actix-web-handle-error"
+name = "actix-web-handle-error-and-logging"
 version = "0.1.0"
 dependencies = [
  "actix-web",
@@ -194,6 +194,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-bunyan-formatter",
+ "tracing-log 0.2.0",
  "tracing-subscriber",
  "uuid",
 ]
