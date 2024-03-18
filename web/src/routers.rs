@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use actix_web::body::BoxBody;
 use actix_web::http::{header, StatusCode};
 use actix_web::{web, HttpResponse, HttpResponseBuilder, Responder, ResponseError};
+use macros::ResponseErrorImpl;
 use uuid::Uuid;
 
 use crate::use_cases::{self, RegisterUserError, RegistrationUser};
@@ -20,14 +21,14 @@ pub struct ErrorResponseBody<'a> {
     /// アプリ独自のエラー・コード
     ///
     /// `actix-web`がエラー処理した場合は`None`である。
-    error_code: Option<u16>,
+    error_code: Option<u32>,
 
     /// エラー・メッセージ
     message: Cow<'a, str>,
 }
 
 impl<'a> ErrorResponseBody<'a> {
-    pub fn new<T>(status_code: u16, error_code: Option<u16>, message: T) -> Self
+    pub fn new<T>(status_code: u16, error_code: Option<u32>, message: T) -> Self
     where
         T: Into<Cow<'a, str>>,
     {
@@ -104,7 +105,7 @@ impl ResponseError for RegisterUserError {
 
     fn error_response(&self) -> HttpResponse<BoxBody> {
         let status_code = self.status_code();
-        let error_code: Option<u16> = match self {
+        let error_code: Option<u32> = match self {
             Self::Unexpected(_) => Some(1),
             Self::Repository(_) => Some(2),
             Self::WeakPassword => Some(10000),
@@ -139,4 +140,17 @@ pub async fn register_user(
     use_cases::register_user(user).await?;
 
     Ok(HttpResponse::Ok().finish())
+}
+
+#[derive(Debug, thiserror::Error, ResponseErrorImpl)]
+pub enum TestError {
+    /// 予期しないエラー
+    #[error("Unexpected error: {0}")]
+    #[response_error(status_code = 500, error_code = 1)]
+    Unexpected(anyhow::Error),
+
+    /// パスワードが弱い
+    #[error("Password is weak")]
+    #[response_error(status_code = 400, error_code = 1000)]
+    WeakPassword,
 }
