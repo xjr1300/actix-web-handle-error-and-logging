@@ -267,6 +267,7 @@ pub async fn register_user(
 
 標準出力に出力されたログを次に示す。
 
+<!-- cspell: disable -->
 ```json
 {
   "v": 0,
@@ -403,3 +404,5 @@ pub async fn register_user(
   "http.client_ip": "127.0.0.1"
 }
 ```
+
+<!-- cspell: enable -->

@@ -2,12 +2,12 @@ use actix_web::dev::ServiceResponse;
 use actix_web::http::header;
 use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
 use actix_web::{web, App, HttpServer};
-use actix_web_handle_error_and_logging::telemetry::{get_subscriber, init_subscriber};
 use tracing_actix_web::TracingLogger;
 
-use actix_web_handle_error_and_logging::routers::{
+use error_and_logging::routers::{
     health_check, login, register_user, ErrorResponseBody, CONTENT_TYPE_JSON,
 };
+use error_and_logging::telemetry::{get_subscriber, init_subscriber};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
