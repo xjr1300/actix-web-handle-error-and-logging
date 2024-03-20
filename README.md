@@ -4,9 +4,9 @@
   - [エラー処理](#エラー処理)
     - [要求仕様](#要求仕様)
     - [エラー・レスポンス・ボディ](#エラーレスポンスボディ)
-    - [エラー・レスポンスを加工する方法](#エラーレスポンスを加工する方法)
-    - [エラー・レスポンスを生成する方法](#エラーレスポンスを生成する方法)
-    - [エラー処理の実装概要](#エラー処理の実装概要)
+    - [`actix-web`がエラー処理した場合にエラー・レスポンスを加工する方法](#actix-webがエラー処理した場合にエラーレスポンスを加工する方法)
+    - [ユース・ケース層における実装](#ユースケース層における実装)
+    - [コントローラー（ルーティング）層における実装](#コントローラールーティング層における実装)
   - [ロギング](#ロギング)
     - [要求仕様](#要求仕様-1)
     - [実装方針](#実装方針)
@@ -23,17 +23,21 @@
 
 本サンプルでは、エラー・レスポンスのボディを次の通り定義する。
 
+- エラー・レスポンス・ボディは、次のフィールドを持つ。
+  - `error_code`: アプリ独自のエラー・コード
+  - `message`: エラー・メッセージ
+- `actix-web`がエラー処理した場合、`error_code`フィールドは`None`
+- エラー・レスポンス・ボディを`serde`クレートを使用してJSONにシリアライズ
+- JSONにシリアライズする際、フィールド名をキャメルケースに変換
+
 ```rust
 /// エラー・レスポンス・ボディ
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorResponseBody<'a> {
-    /// HTTPステータス・コード
-    status_code: u16,
-
     /// アプリ独自のエラー・コード
     ///
-    /// `actix-web`がエラー処理した場合は`None`である。
+    /// `actix-web`がエラー処理した場合は`None`とする。
     error_code: Option<u16>,
 
     /// エラー・メッセージ
@@ -41,22 +45,18 @@ pub struct ErrorResponseBody<'a> {
 }
 ```
 
-`error_code`フィールドは、発生したエラーを識別するアプリ独自のエラー・コードを示す。
-`actix-web`がエラー処理した場合、`error_code`フィールドは`None`である。
-なお、エラー・レスポンス・ボディ構造体をJSONにシリアライズするために、`serde`クレートを使用する。
-
-### エラー・レスポンスを加工する方法
+### `actix-web`がエラー処理した場合にエラー・レスポンスを加工する方法
 
 `actix-web`は、エラー・レスポンスを加工する手段を[ErrorHandlers](https://docs.rs/actix-web/latest/actix_web/middleware/struct.ErrorHandlers.html)で提供している。
 本サンプルでは、[ErrorHandlers::default_handler()](https://docs.rs/actix-web/latest/actix_web/middleware/struct.ErrorHandlers.html#method.default_handler)でエラー・レスポンスを加工する。
-`ErrorHandler`は、次のエラー・レスポンスを処理する次のメソッドを提供している。
-なお、次のエラー・レスポンスを処理するメソッドのことを、**デフォルト・エラー・ハンドラ**と呼ぶ。
+なお、`ErrorHandler`は、次のエラー・レスポンスを処理する次のメソッドを提供している。
+また、本サンプルでは、次のエラー・レスポンスを処理するメソッドのことを**デフォルト・エラー・ハンドラ**と呼ぶ。
 
 - `default_handler_client()`: クライアント・エラー(ステータス・コード400-499)を処理する。
 - `default_handler_server()`: サーバー・エラー(ステータス・コード500-599)を処理する。
 - `default_handler()`: 上記2つのエラーすべてを処理する。
 
-`actix-web`は、エクストラクタなどでエラー処理した場合、そのエラー・レスポンスにはボディがないため、ヘッダにコンテンツ・タイプが設定されていない。
+`actix-web`がエラー処理したときの、レスポンスを次に示す。
 
 ```sh
 $ curl --include http://localhost:8080/foo
@@ -65,112 +65,81 @@ content-length: 0
 date: Thu, 14 Mar 2024 08:06:11 GMT
 ```
 
-よって、デフォルト・エラー・ハンドラでは、これらのエラー・レスポンスを上記エラー・レスポンス・ボディ構造体の内容をJSONにしたエラー・レスポンスを返す。
-また、もしデフォルト・エラー・ハンドラがコンテンツ・タイプが`application/json`であるエラー・レスポンスを受け取った場合、そのエラー・レスポンスを加工せずにそのまま返す。
+`actix-web`は、エクストラクタなどでエラー処理した場合、レスポンス・ボディがなく、ヘッダにコンテンツ・タイプが設定されていない。
+よって、デフォルト・エラー・ハンドラは、コンテンツ・タイプが`application/json`でないレスポンスを受け取った場合、エラー内容を上記`ErrorResponseBody`構造体に変換した値をJSONにシリアライズしてレスポンス・ボディに設定する。
+なお、デフォルト・エラー・ハンドラが、コンテンツ・タイプが`application/json`であるレスポンスを受け取った場合、そのレスポンスを加工せずにそのまま返す。
 
-### エラー・レスポンスを生成する方法
+### ユース・ケース層における実装
 
-クリーン・アーキテクチャにおけるユース・ケース層では、ユース・ケースごとに独自のエラー型をユース・ケース層に定義する。
-そして、その独自エラー型に、[ResponseError](https://docs.rs/actix-web/latest/actix_web/error/trait.ResponseError.html)トレイトをコントローラー層（ルーティングを定義した層）を実装することで、`actix-web`が独自エラー型からエラー・レスポンスを生成できるようにする。
-なお、`ResponseError::error_response()`メソッドには、エラーの内容をエラー・レスポンス・ボディ構造体に変換する処理を実装する。
-
-> それぞれの独自エラー型に`ResponseError`トレイトを実装することは煩雑なため、マクロを利用して実装する。
->
-> ユース・ケース層でエラー処理したときのエラー・レスポンスには、デフォルト・エラー・ハンドラで加工されない。
-
-### エラー処理の実装概要
+クリーン・アーキテクチャにおけるユース・ケース層で、それぞれのユース・ケースごとに独自のエラー型を列挙型でユース・ケース層に定義する。
+また、エラー列挙型のバリアントには、アプリにおける独自のエラー・コードを属性として付与して、エラー・コードでエラー内容を識別する。
+さらに、マクロを定義して、エラー列挙型からエラー・コードを取得するメソッドを自動的に導出する。
 
 ```rust
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
-        App::new()
-            // デフォルト・エラー・ハンドラをミドルウェアとして登録
-            .wrap(ErrorHandlers::new().default_handler(default_error_handler))
-            .route("/", web::get().to(health_check))
-            .route("/login", web::post().to(login))
-            .route("/users", web::post().to(register_user))
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
-}
-
-/// カスタム・デフォルト・エラー・ハンドラ
-fn default_error_handler<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHandlerResponse<B>> {
-    // コンテンツ・タイプがapplication/jsonの場合はそのまま返す
-    let content_type = res.headers().get(header::CONTENT_TYPE);
-    if content_type.is_some() && content_type.unwrap() == CONTENT_TYPE_JSON {
-        return Ok(ErrorHandlerResponse::Response(res.map_into_left_body()));
-    }
-
-    // エラー・レスポンス・ボディを生成
-    let status_code = res.status().as_u16();
-    let message = res
-        .status()
-        .canonical_reason()
-        .unwrap_or("Unexpected error raised");
-    let body = ErrorResponseBody::new(status_code, None, message);
-    let body = serde_json::to_string(&body).unwrap();
-    // actix-webが処理したエラーのエラー・レスポンス・ボディをJSONに変更
-    let (req, res) = res.into_parts();
-    let mut res = res.set_body(body);
-    res.headers_mut().insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static(CONTENT_TYPE_JSON),
-    );
-    let res = ServiceResponse::new(req, res)
-        .map_into_boxed_body()
-        .map_into_right_body();
-
-    Ok(ErrorHandlerResponse::Response(res))
-}
-```
-
-```rust
-/// ユース・ケース層
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, UseCaseError)]
 pub enum RegisterUserError {
     /// 予期しないエラー
-    #[error(transparent)]
-    Unexpected(#[from] anyhow::Error),
+    #[error("Unexpected error: {0}")]
+    #[use_case_error(error_code = 1000)]
+    Unexpected(anyhow::Error),
 
     /// リポジトリ・エラー
-    #[error(transparent)]
-    Repository(#[from] anyhow::Error),
+    #[error("Repository error: {0}")]
+    #[use_case_error(error_code = 1001)]
+    Repository(anyhow::Error),
 
     /// パスワードが弱い
     #[error("Password is weak")]
+    #[use_case_error(error_code = 2000)]
     WeakPassword,
 
     /// ユーザー名が既に登録されている
     #[error("User already exists: {0}")]
+    #[use_case_error(error_code = 2001)]
     UserAlreadyExists(String),
 }
+```
 
-/// コントローラー層（ルーティングを定義した層）
-impl ResponseError for RegisterUserError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            Self::WeakPassword => StatusCode::BAD_REQUEST,
-            Self::UserAlreadyExists(_) => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
+`derive`属性に付与した`UseCaseError`が、エラー列挙型のバリアントのエラー・コードを返却するメソッドを実装するマクロである。
+エラー・コードは、バリアントに`use_case_error`属性の`error_code`フィールドで定義する。
 
-    fn error_response(&self) -> HttpResponse<BoxBody> {
-        let status_code = self.status_code();
-        let error_code: Option<u16> = match self {
-            Self::Unexpected(_) => Some(1),
-            Self::Repository(_) => Some(2),
-            Self::WeakPassword => Some(10000),
-            Self::UserAlreadyExists(_) => Some(10001),
+### コントローラー（ルーティング）層における実装
+
+クリーン・アーキテクチャにおけるコントローラー（ルーティング層）で、`HttpResponse`に`From`トレイトを実装して、ユース・ケース層で定義したエラー型を`HttpResponse`に変換する。
+
+```rust
+impl From<RegisterUserError> for HttpResponse<BoxBody> {
+    fn from(value: RegisterUserError) -> Self {
+        let status_code = match value {
+            RegisterUserError::Unexpected(..) | RegisterUserError::Repository(..) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            RegisterUserError::WeakPassword | RegisterUserError::UserAlreadyExists(..) => {
+                StatusCode::BAD_REQUEST
+            }
         };
-        let message = format!("{}", self);
-        let body = ErrorResponseBody::new(status_code.as_u16(), error_code, message);
-        let body = serde_json::to_string(&body).unwrap();
+        let body = ErrorResponseBody::new(Some(value.error_code()), value.to_string());
 
-        HttpResponse::new(status_code).set_body(body.boxed())
+        HttpResponseBuilder::new(status_code)
+            .insert_header(header::ContentType(mime::APPLICATION_JSON))
+            .json(body)
+    }
+}
+```
+
+これにより、コントローラー層で定義するリクエスト・ハンドラは、次のように実装できる。
+
+```rust
+pub async fn register_user(body: web::Json<RegisterUserRequestBody>) -> HttpResponse {
+    let user = RegistrationUser {
+        user_name: body.user_name.clone(),
+        password: body.password.clone(),
+    };
+
+    match use_cases::register_user(user).await {
+        Ok(_) => HttpResponse::Ok().finish(),
+        // Fromトレイトの実装により、RegisterUserErrorをHttpResponseに変換
+        Err(err) => err.into(),
     }
 }
 ```
@@ -179,9 +148,9 @@ impl ResponseError for RegisterUserError {
 
 ### 要求仕様
 
-- デバッグ、情報、警告、エラーなどを区分してログを記録する。
-- リクエストIDなど、それぞれのリクエストを追跡できるような情報とともにログを記録する。
-- リクエスト・ハンドラの処理時間を記録する。
+- デバッグ、情報、警告、エラーなどを区分してログを記録
+- リクエストIDなど、それぞれのリクエストを追跡できるような情報とともにログに記録
+- リクエスト・ハンドラの処理時間をログに記録する。
 
 ### 実装方針
 
@@ -242,26 +211,25 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
 リクエスト・ハンドラの実装を次に示す。
 
 ```rust
-/// ユーザー登録
+/// ユーザー登録リクエスト・ハンドラ
 #[tracing::instrument(
     name = "register user",
-    skip(body), // パスワードをログに出力しないようにスキップ
+    skip(body),     // パスワードをログに出力しないように、リクエスト・ボディ全体をスキップ
     fields(
-        request_id = %Uuid::new_v4(), // リクエストIDを生成
-        user_name = %body.user_name,
+        request_id = %Uuid::new_v4(),   // リクエストIDを設定して、リクエストに対する一連の処理をログで追跡
+        user_name = %body.user_name,    // リクエスト・ボディのユーザー名をログに記録
     )
 )]
-pub async fn register_user(
-    body: web::Json<RegistrationUserRequestBody>,
-) -> Result<HttpResponse, RegisterUserError> {
+pub async fn register_user(body: web::Json<RegisterUserRequestBody>) -> HttpResponse {
     let user = RegistrationUser {
         user_name: body.user_name.clone(),
         password: body.password.clone(),
     };
 
-    use_cases::register_user(user).await?;
-
-    Ok(HttpResponse::Ok().finish())
+    match use_cases::register_user(user).await {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(err) => err.into(),
+    }
 }
 ```
 
@@ -271,138 +239,185 @@ pub async fn register_user(
 ```json
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "start program",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:31:19.248072Z",
-  "target": "actix_web_handle_error_and_logging",
-  "line": 18,
-  "file": "src/main.rs"
+  "pid": 42057,
+  "time": "2024-03-20T06:57:39.202877Z",
+  "target": "web",
+  "line": 14,
+  "file": "web/src/main.rs"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "starting 8 workers",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:31:19.248697Z",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:39.203475Z",
   "target": "actix_server::builder",
   "line": 240,
   "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/builder.rs"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "Tokio runtime found; starting in existing Tokio runtime",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:31:19.24881Z",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:39.203593Z",
   "target": "actix_server::server",
   "line": 197,
   "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "[HTTP REQUEST - START]",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:32:32.248791Z",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.33571Z",
   "target": "tracing_actix_web::root_span_builder",
   "line": 41,
   "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tracing-actix-web-0.7.10/src/root_span_builder.rs",
+  "otel.kind": "server",
+  "request_id": "20a3523e-ba06-47f3-b026-4d8be10a7ee7",
+  "http.target": "/users",
   "http.flavor": "1.1",
-  "otel.name": "HTTP POST /users",
-  "http.route": "/users",
-  "request_id": "cdf8b45a-0af7-441b-a272-5ec064f467ca",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
   "http.host": "localhost:8080",
   "http.user_agent": "curl/8.4.0",
-  "otel.kind": "server",
-  "http.scheme": "http",
-  "http.method": "POST",
-  "http.target": "/users",
-  "http.client_ip": "127.0.0.1"
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "[REGISTER USER - START]",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:32:32.249098Z",
-  "target": "actix_web_handle_error_and_logging::routers",
-  "line": 123,
-  "file": "src/routers.rs",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.336353Z",
+  "target": "web::routers",
+  "line": 148,
+  "file": "web/src/routers.rs",
+  "otel.kind": "server",
+  "request_id": "52e2e5af-c2a0-491e-bd1d-d49529a450d2",
+  "http.target": "/users",
   "http.flavor": "1.1",
   "user_name": "kuro",
-  "otel.name": "HTTP POST /users",
-  "http.route": "/users",
-  "request_id": "cffca2be-73d3-4242-948a-87f4e1119850",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
   "http.host": "localhost:8080",
   "http.user_agent": "curl/8.4.0",
-  "otel.kind": "server",
-  "http.scheme": "http",
-  "http.method": "POST",
-  "http.target": "/users",
-  "http.client_ip": "127.0.0.1"
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
+  "msg": "[REGISTER USER USE CASE - START]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.336467Z",
+  "target": "web::use_cases",
+  "line": 33,
+  "file": "web/src/use_cases.rs",
+  "otel.kind": "server",
+  "request_id": "52e2e5af-c2a0-491e-bd1d-d49529a450d2",
+  "http.target": "/users",
+  "http.flavor": "1.1",
+  "user_name": "kuro",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
+}
+{
+  "v": 0,
+  "name": "error_and_logging",
+  "msg": "[REGISTER USER USE CASE - END]",
+  "level": 30,
+  "hostname": "mac17.local",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.336568Z",
+  "target": "web::use_cases",
+  "line": 33,
+  "file": "web/src/use_cases.rs",
+  "otel.kind": "server",
+  "request_id": "52e2e5af-c2a0-491e-bd1d-d49529a450d2",
+  "http.target": "/users",
+  "http.flavor": "1.1",
+  "user_name": "kuro",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
+  "elapsed_milliseconds": 0,
+  "http.host": "localhost:8080",
+  "http.user_agent": "curl/8.4.0",
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
+}
+{
+  "v": 0,
+  "name": "error_and_logging",
   "msg": "[REGISTER USER - END]",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:32:32.249236Z",
-  "target": "actix_web_handle_error_and_logging::routers",
-  "line": 123,
-  "file": "src/routers.rs",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.336751Z",
+  "target": "web::routers",
+  "line": 148,
+  "file": "web/src/routers.rs",
+  "otel.kind": "server",
+  "request_id": "52e2e5af-c2a0-491e-bd1d-d49529a450d2",
+  "http.target": "/users",
   "http.flavor": "1.1",
   "user_name": "kuro",
-  "otel.name": "HTTP POST /users",
-  "http.route": "/users",
-  "request_id": "cffca2be-73d3-4242-948a-87f4e1119850",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
+  "elapsed_milliseconds": 0,
   "http.host": "localhost:8080",
   "http.user_agent": "curl/8.4.0",
-  "otel.kind": "server",
-  "elapsed_milliseconds": 0,
-  "http.scheme": "http",
-  "http.method": "POST",
-  "http.target": "/users",
-  "http.client_ip": "127.0.0.1"
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
 }
 {
   "v": 0,
-  "name": "actix_web_handle_error_and_logging",
+  "name": "error_and_logging",
   "msg": "[HTTP REQUEST - END]",
   "level": 30,
   "hostname": "mac17.local",
-  "pid": 46832,
-  "time": "2024-03-16T12:32:32.24942Z",
+  "pid": 42057,
+  "time": "2024-03-20T06:57:41.337307Z",
   "target": "tracing_actix_web::root_span_builder",
   "line": 41,
   "file": "/Users/xjr1300/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tracing-actix-web-0.7.10/src/root_span_builder.rs",
+  "otel.kind": "server",
+  "request_id": "20a3523e-ba06-47f3-b026-4d8be10a7ee7",
+  "http.target": "/users",
   "http.flavor": "1.1",
   "http.status_code": 200,
-  "otel.name": "HTTP POST /users",
-  "http.route": "/users",
-  "request_id": "cdf8b45a-0af7-441b-a272-5ec064f467ca",
+  "http.method": "POST",
+  "http.client_ip": "127.0.0.1",
+  "http.scheme": "http",
+  "elapsed_milliseconds": 1,
   "http.host": "localhost:8080",
   "http.user_agent": "curl/8.4.0",
-  "otel.kind": "server",
   "otel.status_code": "OK",
-  "elapsed_milliseconds": 0,
-  "http.scheme": "http",
-  "http.method": "POST",
-  "http.target": "/users",
-  "http.client_ip": "127.0.0.1"
+  "otel.name": "HTTP POST /users",
+  "http.route": "/users"
 }
 ```
-
-<!-- cspell: enable -->
