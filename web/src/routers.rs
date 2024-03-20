@@ -137,7 +137,7 @@ pub async fn login(body: web::Json<LoginRequestBody>) -> impl Responder {
 /// ユーザー登録リクエスト・ボディ
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RegistrationUserRequestBody {
+pub struct RegisterUserRequestBody {
     /// ユーザー名
     user_name: String,
     /// パスワード
@@ -153,7 +153,7 @@ pub struct RegistrationUserRequestBody {
         user_name = %body.user_name,    // リクエスト・ボディのユーザー名をログに記録
     )
 )]
-pub async fn register_user(body: web::Json<RegistrationUserRequestBody>) -> HttpResponse {
+pub async fn register_user(body: web::Json<RegisterUserRequestBody>) -> HttpResponse {
     let user = RegistrationUser {
         user_name: body.user_name.clone(),
         password: body.password.clone(),
