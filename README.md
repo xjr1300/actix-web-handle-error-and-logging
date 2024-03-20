@@ -144,6 +144,8 @@ pub async fn register_user(body: web::Json<RegisterUserRequestBody>) -> HttpResp
 }
 ```
 
+> ユース・ケース層で定義したエラー列挙型のバリアントに、クライアントに返すHTTPステータス・コードを属性として付与して、マクロでHTTPステータス・コードを取り扱う実装を自動で導出できるが、レイヤの責務に違反するため、`From`トレイトを実装した。
+
 ## ロギング
 
 ### 要求仕様
