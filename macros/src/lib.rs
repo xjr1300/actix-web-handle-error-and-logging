@@ -1,15 +1,17 @@
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
-mod response_error;
-use response_error::response_error_impl;
+mod utils;
 
-/// ResponseError導出マクロ
-#[proc_macro_derive(ResponseErrorImpl, attributes(response_error))]
-pub fn derive_response_error(input: TokenStream) -> TokenStream {
+mod use_case_error;
+use use_case_error::use_case_error_impl;
+
+/// UseCaseError導出マクロ
+#[proc_macro_derive(UseCaseError, attributes(use_case_error))]
+pub fn derive_use_case_error(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    match response_error_impl(input) {
+    match use_case_error_impl(input) {
         Ok(token_stream) => TokenStream::from(token_stream),
         Err(err) => TokenStream::from(err.into_compile_error()),
     }
